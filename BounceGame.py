@@ -26,20 +26,18 @@ class Sprite:
     def is_colliding(self, other_sprite):
         return pixel_collision(self.mask, self.rectangle, other_sprite.mask, other_sprite.rectangle)
 
-class Enemy:
+class Enemy(Sprite):
     def __init__(self, image, width, height):
-        self.image = image
-        self.mask = pygame.mask.from_surface(image)
-        self.rectangle = image.get_rect()
-        x = random.randint(0, width)
-        y = random.randint(0, height)
-        self.rectangle.center = (x, y)
-        vx = random.randint(-5, 5)
-        vy = random.randint(-5, 5)
+        super().__init__(image)
+        self.rectangle.center = (
+            random.randint(0, width),
+            random.randint(0, height)
+        )
+        vx, vy = random.randint(-5, 5), random.randint(-5, 5)
         while vx == 0 and vy == 0:
-            vx = random.randint(-5, 5)
-            vy = random.randint(-5, 5)
+            vx, vy = random.randint(-5, 5), random.randint(-5, 5)
         self.speed = (vx, vy)
+        self.has_collided = False  # 👈 여기에 추가
 
     def move(self):
         vx, vy = self.speed
@@ -53,20 +51,42 @@ class Enemy:
             vy = -vy
         self.speed = (vx, vy)
 
-    def draw(self, screen):
-        screen.blit(self.image, self.rectangle)
-
-class PowerUp:
+class PowerUp(Sprite):
     def __init__(self, image, width, height):
-        self.image = image
-        self.mask = pygame.mask.from_surface(image)
-        self.rectangle = image.get_rect()
-        x = random.randint(0, width)
-        y = random.randint(0, height)
-        self.rectangle.center = (x, y)
+        super().__init__(image)
+        self.rectangle.center = (
+            random.randint(0, width - self.rectangle.width),
+            random.randint(0, height - self.rectangle.height)
+        )
+
+class Player(Sprite):
+    def __init__(self, image):
+        super().__init__(image)
+
+    def set_position(self, new_position):
+        self.rectangle.center = new_position
+
+class PlatformEnemy(Enemy):
+    def __init__(self, image, width, height):
+        super().__init__(image, width, height)
+        vx, _ = self.speed
+        self.speed = (vx, 0) # y-direction is fixed, which makes the game easy, since the game is difficult to play right now.
+
+class RotatingPowerUp(PowerUp):
+    def __init__(self, image, width, height):
+        super().__init__(image, width, height)
+        self.angle = 0
+        self.original_image = image
 
     def draw(self, screen):
-        screen.blit(self.image, self.rectangle)
+        self.angle += 5
+        self.image = pygame.transform.rotate(self.original_image, self.angle)
+        old_center = self.rectangle.center
+        self.rectangle = self.image.get_rect()
+        self.rectangle.center = old_center
+        self.mask = pygame.mask.from_surface(self.image)
+        super().draw(screen)
+
 
 def main():
     pygame.init()
@@ -80,14 +100,18 @@ def main():
     enemy_image = pygame.transform.smoothscale(enemy, (50, 50))
 
     enemy_sprites = []
-    for _ in range(7):
+    for _ in range(4):
         enemy_sprite = Enemy(enemy_image, width, height)
         enemy_sprites.append(enemy_sprite)
+
+    for _ in range(3):
+        platform_enemy = PlatformEnemy(enemy_image, width, height)
+        enemy_sprites.append(platform_enemy)
 
     # Player image scaled to same size as enemies
     player_raw = pygame.image.load("cat.png").convert_alpha()
     player_image = pygame.transform.smoothscale(player_raw, (50, 50))
-    player_sprite = Sprite(player_image)
+    player_sprite = Player(player_image)
     life = 3
 
     powerup_image = pygame.image.load("boost up cat.png").convert_alpha()
@@ -113,11 +137,19 @@ def main():
 
         for enemy_sprite in enemy_sprites:
             if player_sprite.is_colliding(enemy_sprite):
-                life -= 0.1
+                if not enemy_sprite.has_collided:
+                    life -= 1
+                    life = max(life, 0)
+                    enemy_sprite.has_collided = True
+            else:
+                enemy_sprite.has_collided = False
 
         for powerup in powerups:
             if player_sprite.is_colliding(powerup):
-                life += 1
+                if isinstance(powerup, RotatingPowerUp):
+                    life += 2
+                else:
+                    life += 1
 
         powerups = [p for p in powerups if not player_sprite.is_colliding(p)]
 
@@ -137,7 +169,10 @@ def main():
             random_enemy.speed = (vx, vy)
 
         if random.randint(1, 100) == 1:
-            new_powerup = PowerUp(powerup_image, width, height)
+            if random.random() < 0.5:
+                new_powerup = PowerUp(powerup_image, width, height)
+            else:
+                new_powerup = RotatingPowerUp(powerup_image, width, height)
             powerups.append(new_powerup)
 
         screen.fill((0, 100, 50))
@@ -149,7 +184,7 @@ def main():
 
         player_sprite.draw(screen)
 
-        text = "Life: " + str('%.1f' % life)
+        text = "Life: " + str(life)
         life_banner = myfont.render(text, True, (255, 255, 0))
         screen.blit(life_banner, (20, 20))
 
